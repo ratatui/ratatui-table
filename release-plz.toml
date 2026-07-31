@@ -1,3 +1,4 @@
 [workspace]
 changelog_config = "cliff.toml"
+features_always_increment_minor = true
 pr_branch_prefix = "release-plz-"
