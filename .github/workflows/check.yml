@@ -262,7 +262,7 @@ jobs:
           annotations: true
           inputs: .github/workflows
           min-severity: medium
-          version: 1.28.0
+          version: 1.25.2
 
   coverage:
     name: Coverage
