@@ -1,0 +1,9 @@
+# Release-sensitive paths require Ratatui maintainer review. Ordinary source changes are reviewed
+# by the contributor group under the main branch ruleset.
+
+/.github/ @ratatui/maintainers
+/Cargo.lock @ratatui/maintainers
+/Cargo.toml @ratatui/maintainers
+/cliff.toml @ratatui/maintainers
+/deny.toml @ratatui/maintainers
+/release-plz.toml @ratatui/maintainers

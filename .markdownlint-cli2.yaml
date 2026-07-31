@@ -1,0 +1,21 @@
+config:
+  no-duplicate-heading: false
+  no-inline-html:
+    allowed_elements:
+      - br
+      - details
+      - h1
+      - img
+      - summary
+  line-length:
+    line_length: 100
+    heading_line_length: 100
+    code_block_line_length: 100
+    code_blocks: true
+    tables: true
+    headings: true
+    strict: false
+    stern: false
+ignores:
+  - "CHANGELOG.md"
+  - "target/**"

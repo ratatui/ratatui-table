@@ -1,0 +1,57 @@
+[package]
+name = "ratatui-table"
+version = "0.0.0"
+description = "An experimental evolution of Ratatui's built-in Table widget"
+documentation = "https://docs.rs/ratatui-table"
+repository = "https://github.com/ratatui/ratatui-table"
+homepage = "https://ratatui.rs"
+readme = "README.md"
+license = "MIT"
+edition = "2024"
+rust-version = "1.88.0"
+keywords = ["ratatui", "table", "terminal", "tui", "widget"]
+categories = ["command-line-interface", "gui"]
+exclude = [".github", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = []
+std = [
+  "itertools/use_std",
+  "ratatui-core/std",
+  "ratatui-widgets/std",
+  "serde?/std",
+  "strum/std",
+]
+serde = ["dep:serde", "ratatui-core/serde"]
+
+[dependencies]
+itertools = { version = "0.15", default-features = false, features = ["use_alloc"] }
+ratatui-core = { version = "0.1.2", default-features = false }
+ratatui-widgets = { version = "0.3.2", default-features = false }
+serde = { version = "1.0.228", default-features = false, features = ["derive"], optional = true }
+strum = { version = "0.28", default-features = false, features = ["derive"] }
+
+[dev-dependencies]
+pretty_assertions = "1"
+ratatui = { version = "0.30.2", default-features = false }
+rstest = "0.26"
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused = { level = "warn", priority = -1 }
+
+[lints.clippy]
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+iter_on_single_items = "allow"
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
