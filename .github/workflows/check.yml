@@ -253,12 +253,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Install zizmor
-        run: cargo install --locked --version 1.28.0 zizmor
       - name: Run actionlint
         run: actionlint -color=false .github/workflows/*.yml
       - name: Run zizmor
-        run: zizmor --min-severity medium .github/workflows
+        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        with:
+          advanced-security: false
+          annotations: true
+          inputs: .github/workflows
+          min-severity: medium
+          version: 1.28.0
 
   coverage:
     name: Coverage
