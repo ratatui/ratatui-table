@@ -251,7 +251,7 @@ jobs:
       - name: Install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Install zizmor
-        run: cargo install --locked --version 1.18.2 zizmor
+        run: cargo install --locked --version 1.28.0 zizmor
       - name: Run actionlint
         run: actionlint -color=false .github/workflows/*.yml
       - name: Run zizmor
