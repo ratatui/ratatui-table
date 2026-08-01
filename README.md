@@ -2,7 +2,7 @@
 
 <!-- cargo-rdme start -->
 
-An experimental evolution of Ratatui's built-in [`Table`](https://docs.rs/ratatui-table/latest/ratatui_table/table/struct.Table.html) widget.
+An experimental evolution of Ratatui's built-in [`Table`] widget.
 
 `ratatui-table` starts with the Table implementation from Ratatui main at
 [`3d8639c`]. Version 0.1.0 is intended to render like that built-in Table while giving Table
@@ -43,7 +43,7 @@ let table = Table::new(rows, widths);
 
 ## Ratatui compatibility
 
-[`Table::block`](https://docs.rs/ratatui-table/latest/ratatui_table/table/struct.Table.html#method.block) accepts [`ratatui_widgets::block::Block`](https://docs.rs/ratatui_widgets/latest/ratatui_widgets/block/struct.Block.html) to preserve the built-in API. This
+[`Table::block`] accepts [`ratatui_widgets::block::Block`] to preserve the built-in API. This
 means the initial crate depends on `ratatui-widgets` with default features disabled. A future
 Ratatui facade can re-export this crate without requiring this crate to become part of
 `ratatui-widgets` itself.
@@ -52,7 +52,7 @@ Ratatui facade can re-export this crate without requiring this crate to become p
 
 - `std` enables the standard-library features of the Ratatui dependencies. The Table itself
   remains usable with `no_std` plus `alloc` by default.
-- `serde` adds serialization and deserialization for [`TableState`](https://docs.rs/ratatui-table/latest/ratatui_table/table/state/struct.TableState.html) and [`HighlightSpacing`](https://docs.rs/ratatui-table/latest/ratatui_table/table/highlight_spacing/enum.HighlightSpacing.html).
+- `serde` adds serialization and deserialization for [`TableState`] and [`HighlightSpacing`].
 
 ## Governance
 
