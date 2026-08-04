@@ -13,6 +13,7 @@
 //! other changes independently.
 //!
 //! [`3d8639c`]: https://github.com/ratatui/ratatui/commit/3d8639cbb2f910200f30e680a8923ccaf99ba1bf
+//! [`Table`]: https://docs.rs/ratatui-table/latest/ratatui_table/struct.Table.html
 //!
 //! This crate is an opt-in development path for the built-in widget, not a competing Table design.
 //! If the experiment succeeds, Ratatui should be able to offer an easy upgrade or re-export path.
@@ -46,16 +47,25 @@
 //!
 //! # Ratatui compatibility
 //!
-//! [`Table::block`] accepts [`ratatui_widgets::block::Block`] to preserve the built-in API. This
-//! means the initial crate depends on `ratatui-widgets` with default features disabled. A future
-//! Ratatui facade can re-export this crate without requiring this crate to become part of
-//! `ratatui-widgets` itself.
+//! [`Table::block`][block] accepts a ratatui-widgets [`Block`][block-widget] to preserve the
+//! built-in API. This means the initial crate depends on `ratatui-widgets` with default features
+//! disabled. A future Ratatui facade can re-export this crate without requiring this crate to
+//! become part of `ratatui-widgets` itself.
+//!
+//! [block]: https://docs.rs/ratatui-table/latest/ratatui_table/struct.Table.html#method.block
+//! [block-widget]: https://docs.rs/ratatui-widgets/latest/ratatui_widgets/block/struct.Block.html
 //!
 //! # Feature flags
 //!
 //! - `std` enables the standard-library features of the Ratatui dependencies. The Table itself
 //!   remains usable with `no_std` plus `alloc` by default.
-//! - `serde` adds serialization and deserialization for [`TableState`] and [`HighlightSpacing`].
+//! - `serde` adds serialization and deserialization for [`TableState`], [`TableSelection`],
+//!   [`HighlightSpacing`][hs], and [`HighlightPlacement`][hp].
+//!
+//! [`TableState`]: https://docs.rs/ratatui-table/latest/ratatui_table/struct.TableState.html
+//! [`TableSelection`]: https://docs.rs/ratatui-table/latest/ratatui_table/enum.TableSelection.html
+//! [hs]: https://docs.rs/ratatui-table/latest/ratatui_table/enum.HighlightSpacing.html
+//! [hp]: https://docs.rs/ratatui-table/latest/ratatui_table/enum.HighlightPlacement.html
 //!
 //! # Governance
 //!
@@ -68,4 +78,6 @@ extern crate alloc;
 mod table;
 
 #[doc(inline)]
-pub use table::{Cell, HighlightSpacing, Row, Table, TableState};
+pub use table::{
+    Cell, HighlightPlacement, HighlightSpacing, Row, Table, TableSelection, TableState,
+};
