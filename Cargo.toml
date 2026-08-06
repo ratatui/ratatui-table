@@ -1,6 +1,6 @@
 [package]
 name = "ratatui-table"
-version = "0.1.0"
+version = "0.1.1"
 description = "An experimental evolution of Ratatui's built-in Table widget"
 documentation = "https://docs.rs/ratatui-table"
 repository = "https://github.com/ratatui/ratatui-table"
