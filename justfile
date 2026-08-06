@@ -1,7 +1,5 @@
 set shell := ["bash", "-uc"]
-
-default:
-    @just --list
+set default-list := true
 
 fmt:
     RUSTFMT="$(rustup which --toolchain nightly rustfmt)" cargo fmt --all
