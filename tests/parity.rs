@@ -3,6 +3,8 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Flex, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, StatefulWidget, Widget};
+#[cfg(feature = "serde")]
+use ratatui_table::TableSelection;
 use ratatui_table::{Cell, HighlightSpacing, Row, Table, TableState};
 use ratatui_widgets::table as builtin;
 
@@ -92,7 +94,7 @@ fn renders_selection_and_scrolling_like_builtin_table() {
 
     assert_eq!(extracted_buffer, builtin_buffer);
     assert_eq!(extracted_state.offset(), builtin_state.offset());
-    assert_eq!(extracted_state.selected(), builtin_state.selected());
+    assert_eq!(extracted_state.selected_row(), builtin_state.selected());
     assert_eq!(
         extracted_state.selected_column(),
         builtin_state.selected_column()
@@ -124,6 +126,32 @@ fn handles_small_areas_like_builtin_table() {
     }
 }
 
+/// The default [`HighlightPlacement`] must lay out exactly like the built-in table: reserve the
+/// symbol column at the left edge and shift every column right by its width.
+#[test]
+fn default_highlight_placement_matches_builtin_table() {
+    let area = Rect::new(0, 0, 24, 4);
+    let widths = [Constraint::Length(6), Constraint::Length(6)];
+    let rows = ["a", "b", "c"];
+
+    let extracted = Table::new(rows.map(|r| Row::new([r, r])), widths)
+        .highlight_symbol(">> ")
+        .flex(Flex::Start);
+    let builtin = builtin::Table::new(rows.map(|r| builtin::Row::new([r, r])), widths)
+        .highlight_symbol(">> ")
+        .flex(Flex::Start);
+
+    let mut extracted_state = TableState::new().with_selected_row(1);
+    let mut builtin_state = builtin::TableState::new().with_selected(1);
+    let mut extracted_buffer = Buffer::empty(area);
+    let mut builtin_buffer = Buffer::empty(area);
+
+    StatefulWidget::render(extracted, area, &mut extracted_buffer, &mut extracted_state);
+    StatefulWidget::render(builtin, area, &mut builtin_buffer, &mut builtin_state);
+
+    assert_eq!(extracted_buffer, builtin_buffer);
+}
+
 #[cfg(feature = "serde")]
 #[test]
 fn serializes_state_with_serde_feature() {
@@ -134,4 +162,19 @@ fn serializes_state_with_serde_feature() {
     let round_trip: TableState = serde_json::from_str(&json).unwrap();
 
     assert_eq!(round_trip, state);
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn serializes_every_selection_arm() {
+    for selection in [
+        TableSelection::Row(1),
+        TableSelection::Column(2),
+        TableSelection::Cell { row: 3, column: 4 },
+    ] {
+        let state = TableState::new().with_selection(selection);
+        let json = serde_json::to_string(&state).unwrap();
+        let round_trip: TableState = serde_json::from_str(&json).unwrap();
+        assert_eq!(round_trip, state);
+    }
 }
