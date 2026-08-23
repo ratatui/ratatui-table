@@ -53,7 +53,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Run Clippy
         run: cargo +${{ matrix.toolchain }} clippy --all-targets --all-features -- -D warnings
 
@@ -82,7 +82,7 @@ jobs:
         with:
           toolchain: stable
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Run tests
         run: cargo test ${{ matrix.features.args }}
 
@@ -101,7 +101,7 @@ jobs:
         with:
           toolchain: nightly
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build documentation
         run: cargo doc --all-features --no-deps
 
@@ -118,7 +118,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Check MSRV
         run: cargo check --all-features
 
@@ -139,7 +139,7 @@ jobs:
         with:
           tool: cargo-minimal-versions,cargo-hack
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Check direct dependency floors
         run: cargo minimal-versions check --direct --lib
 
@@ -182,7 +182,7 @@ jobs:
       - name: Install cargo-semver-checks
         uses: taiki-e/install-action@b8cecb83565409bcc297b2df6e77f030b2a468d5 # v2.82.0
         with:
-          tool: cargo-semver-checks@0.48
+          tool: cargo-semver-checks@0.50
       - name: Run semver checks
         run: cargo semver-checks
 
