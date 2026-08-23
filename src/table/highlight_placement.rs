@@ -173,15 +173,13 @@ mod tests {
 
     #[test]
     fn mask_zero_columns() {
-        assert!(
-            HighlightPlacement::AllColumns
-                .column_mask(Some(0), 0)
-                .is_empty()
+        assert_eq!(
+            HighlightPlacement::AllColumns.column_mask(Some(0), 0),
+            Vec::<bool>::new()
         );
-        assert!(
-            HighlightPlacement::FirstColumn
-                .column_mask(None, 0)
-                .is_empty()
+        assert_eq!(
+            HighlightPlacement::FirstColumn.column_mask(None, 0),
+            Vec::<bool>::new()
         );
     }
 }
