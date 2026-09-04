@@ -137,14 +137,19 @@ impl LazyRowProvider<'_> {
         }
 
         // Fill the area downwards from the start with the rows that fit in it completely.
+        //
+        // `height` only ever takes a checked sum that fits in the area, so a row reporting
+        // `u16::MAX` lines cannot overflow it, and `end` stops at `self.count`.
         let mut end = start;
         let mut height = 0_u16;
         while end < self.count {
-            let row_height = self.height_of(end);
-            if height.saturating_add(row_height) > area.height {
+            let Some(filled) = height.checked_add(self.height_of(end)) else {
+                break;
+            };
+            if filled > area.height {
                 break;
             }
-            height += row_height;
+            height = filled;
             end += 1;
             if window_is_full(start, end, area) {
                 break;
@@ -156,15 +161,19 @@ impl LazyRowProvider<'_> {
         if let Some(selected) = selected
             && selected >= end
         {
+            // `selected <= last_row`, so `selected + 1` cannot overflow, and `start` is only
+            // decremented while it is above zero.
             start = selected;
             end = selected + 1;
             height = self.height_of(selected);
             while start > 0 && !window_is_full(start, end, area) {
-                let row_height = self.height_of(start - 1);
-                if height.saturating_add(row_height) > area.height {
+                let Some(filled) = height.checked_add(self.height_of(start - 1)) else {
+                    break;
+                };
+                if filled > area.height {
                     break;
                 }
-                height += row_height;
+                height = filled;
                 start -= 1;
             }
         }
@@ -279,7 +288,8 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 /// ```rust
 /// use ratatui::layout::Constraint;
 /// use ratatui::style::{Style, Stylize};
-/// use ratatui::widgets::{Block, Row, Table};
+/// use ratatui::widgets::Block;
+/// use ratatui_table::{Row, Table};
 ///
 /// let rows = [Row::new(vec!["Cell1", "Cell2", "Cell3"])];
 /// // Columns widths are constrained in the same way as Layout...
@@ -318,7 +328,7 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 /// ```rust
 /// use ratatui::style::{Style, Stylize};
 /// use ratatui::text::{Line, Span};
-/// use ratatui::widgets::{Cell, Row, Table};
+/// use ratatui_table::{Cell, Row, Table};
 ///
 /// // a Row can be created from simple strings.
 /// let row = Row::new(vec!["Row11", "Row12", "Row13"]);
@@ -348,7 +358,7 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 /// ```rust
 /// use ratatui::style::{Style, Stylize};
 /// use ratatui::text::{Line, Span, Text};
-/// use ratatui::widgets::Cell;
+/// use ratatui_table::Cell;
 ///
 /// Cell::from("simple string");
 /// Cell::from("simple styled span".red());
@@ -404,7 +414,8 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 /// use ratatui::Frame;
 /// use ratatui::layout::{Constraint, Rect};
 /// use ratatui::style::{Style, Stylize};
-/// use ratatui::widgets::{Block, Row, Table, TableState};
+/// use ratatui::widgets::Block;
+/// use ratatui_table::{Row, Table, TableState};
 ///
 /// # fn ui(frame: &mut Frame) {
 /// # let area = Rect::default();
@@ -583,7 +594,7 @@ impl<'a> Table<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use ratatui::widgets::{Cell, Row, Table};
+    /// use ratatui_table::{Cell, Row, Table};
     ///
     /// let header = Row::new(vec![
     ///     Cell::from("Header Cell 1"),
@@ -606,7 +617,7 @@ impl<'a> Table<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use ratatui::widgets::{Cell, Row, Table};
+    /// use ratatui_table::{Cell, Row, Table};
     ///
     /// let footer = Row::new(vec![
     ///     Cell::from("Footer Cell 1"),
@@ -635,7 +646,7 @@ impl<'a> Table<'a> {
     ///
     /// ```rust
     /// use ratatui::layout::Constraint;
-    /// use ratatui::widgets::{Cell, Row, Table};
+    /// use ratatui_table::{Cell, Row, Table};
     ///
     /// let table = Table::default().widths([Constraint::Length(5), Constraint::Length(5)]);
     /// let table = Table::default().widths(vec![Constraint::Length(5); 2]);
@@ -687,7 +698,8 @@ impl<'a> Table<'a> {
     ///
     /// ```rust
     /// use ratatui::layout::Constraint;
-    /// use ratatui::widgets::{Block, Cell, Row, Table};
+    /// use ratatui::widgets::Block;
+    /// use ratatui_table::{Cell, Row, Table};
     ///
     /// let rows = [Row::new(vec!["Cell1", "Cell2"])];
     /// let widths = [Constraint::Length(5), Constraint::Length(5)];
@@ -728,7 +740,7 @@ impl<'a> Table<'a> {
     /// ```rust
     /// use ratatui::layout::Constraint;
     /// use ratatui::style::Stylize;
-    /// use ratatui::widgets::{Cell, Row, Table};
+    /// use ratatui_table::{Cell, Row, Table};
     ///
     /// # let rows = [Row::new(vec!["Cell1", "Cell2"])];
     /// # let widths = vec![Constraint::Length(5), Constraint::Length(5)];
@@ -758,7 +770,7 @@ impl<'a> Table<'a> {
     /// ```rust
     /// use ratatui::layout::Constraint;
     /// use ratatui::style::{Style, Stylize};
-    /// use ratatui::widgets::{Cell, Row, Table};
+    /// use ratatui_table::{Cell, Row, Table};
     ///
     /// let rows = [Row::new(vec!["Cell1", "Cell2"])];
     /// let widths = [Constraint::Length(5), Constraint::Length(5)];
@@ -855,7 +867,7 @@ impl<'a> Table<'a> {
     ///
     /// ```rust
     /// use ratatui::layout::Constraint;
-    /// use ratatui::widgets::{Cell, Row, Table};
+    /// use ratatui_table::{Cell, Row, Table};
     ///
     /// # let rows = [Row::new(vec!["Cell1", "Cell2"])];
     /// # let widths = [Constraint::Length(5), Constraint::Length(5)];
@@ -889,7 +901,7 @@ impl<'a> Table<'a> {
     ///
     /// ```rust
     /// use ratatui::layout::Constraint;
-    /// use ratatui::widgets::{HighlightSpacing, Row, Table};
+    /// use ratatui_table::{HighlightSpacing, Row, Table};
     ///
     /// let rows = [Row::new(vec!["Cell1", "Cell2"])];
     /// let widths = [Constraint::Length(5), Constraint::Length(5)];
@@ -937,8 +949,8 @@ impl<'a> Table<'a> {
     /// exclusively for the rows that fall within the visible viewport, so memory allocation and
     /// processing work scale with the visible area rather than the total dataset size.
     ///
-    /// Rows are one line tall by default. Use [`Table::row_height`] for taller rows, or
-    /// [`Table::row_height_with`] when rows have individual heights.
+    /// Rows are one line tall by default. Use [`Table::lazy_row_height`] for taller rows, or
+    /// [`Table::lazy_row_height_with`] when rows have individual heights.
     ///
     /// The `widths` parameter works exactly like [`Table::widths`] and must be provided because
     /// column layout cannot be inferred from rows that have not yet been built.
@@ -983,7 +995,7 @@ impl<'a> Table<'a> {
 
     /// Set the height, in lines, of every lazily built row.
     ///
-    /// Use [`Table::row_height_with`] when rows have individual heights.
+    /// Use [`Table::lazy_row_height_with`] when rows have individual heights.
     ///
     /// This is a fluent setter method which must be chained or used as it consumes self
     ///
@@ -1001,10 +1013,10 @@ impl<'a> Table<'a> {
     /// let table = Table::lazy_rows(10_000, [Constraint::Length(20)], |index| {
     ///     Row::new([format!("item {index}")])
     /// })
-    /// .row_height(2);
+    /// .lazy_row_height(2);
     /// ```
     #[must_use = "method moves the value of self and returns the modified value"]
-    pub fn row_height(mut self, height: u16) -> Self {
+    pub fn lazy_row_height(mut self, height: u16) -> Self {
         if let Some(ref mut lazy) = self.lazy {
             lazy.heights = LazyRowHeights::Uniform(height);
         }
@@ -1013,7 +1025,7 @@ impl<'a> Table<'a> {
 
     /// Set the height, in lines, of each lazily built row individually.
     ///
-    /// This is the varying-height counterpart of [`Table::row_height`].
+    /// This is the varying-height counterpart of [`Table::lazy_row_height`].
     ///
     /// Scrolling needs the geometry of rows that are not on screen — for instance to work out how
     /// far to scroll back when the selection is below the viewport — which is why heights are
@@ -1039,10 +1051,10 @@ impl<'a> Table<'a> {
     /// let table = Table::lazy_rows(10_000, [Constraint::Length(20)], |index| {
     ///     Row::new([format!("item {index}")])
     /// })
-    /// .row_height_with(|index| if index % 10 == 0 { 2 } else { 1 });
+    /// .lazy_row_height_with(|index| if index % 10 == 0 { 2 } else { 1 });
     /// ```
     #[must_use = "method moves the value of self and returns the modified value"]
-    pub fn row_height_with<H>(mut self, height: H) -> Self
+    pub fn lazy_row_height_with<H>(mut self, height: H) -> Self
     where
         H: Fn(usize) -> u16 + Send + Sync + RefUnwindSafe + 'a,
     {
@@ -1545,6 +1557,22 @@ mod tests {
 
     use super::*;
     use crate::table::Cell;
+
+    /// A row taller than the remaining space must end the window instead of wrapping the
+    /// running line total, which needs an area tall enough for that total to reach `u16::MAX`.
+    #[test]
+    fn lazy_visible_rows_do_not_overflow_the_line_total() {
+        let table = Table::lazy_rows(4, [Constraint::Length(1)], |_| Row::new(["x"]))
+            .lazy_row_height_with(|index| if index == 0 { u16::MAX } else { 1 });
+        let lazy = table.lazy.as_ref().expect("lazy rows");
+        let area = Rect::new(0, 0, 1, u16::MAX);
+
+        let state = TableState::default();
+        assert_eq!(lazy.visible_rows(&state, area), (0, 1));
+
+        let state = TableState::default().with_selected(3);
+        assert_eq!(lazy.visible_rows(&state, area), (1, 4));
+    }
 
     #[test]
     fn new() {
