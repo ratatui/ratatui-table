@@ -489,7 +489,7 @@ fn lazy_table_rows_clamp_their_offset_when_the_header_fills_the_area() {
     let buffer = render_table(table, &mut state, 12, 1);
 
     assert_content(&buffer, ["head        "]);
-    assert!(built_indexes(&built).is_empty());
+    assert_eq!(built_indexes(&built), [] as [usize; 0]);
     assert_eq!(state.offset(), 9, "the offset is clamped to the last row");
 }
 
@@ -943,7 +943,7 @@ fn lazy_rows_with_no_rows_clear_the_selection() {
 
     assert_content(&buffer, ["            "; 3]);
     assert_eq!(state.selected(), None);
-    assert!(built_indexes(&built).is_empty());
+    assert_eq!(built_indexes(&built), [] as [usize; 0]);
 }
 
 #[test]
