@@ -1,3 +1,6 @@
+[workspace]
+members = ["examples/apps/*"]
+
 [package]
 name = "ratatui-table"
 version = "0.2.0"
@@ -11,7 +14,7 @@ edition = "2024"
 rust-version = "1.88.0"
 keywords = ["ratatui", "table", "terminal", "tui", "widget"]
 categories = ["command-line-interface", "gui"]
-exclude = [".github", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md"]
+exclude = [".github", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "examples"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -41,11 +44,14 @@ ratatui = { version = "0.30.2", default-features = false }
 rstest = "0.26"
 serde_json = "1"
 
-[lints.rust]
+[lints]
+workspace = true
+
+[workspace.lints.rust]
 unsafe_code = "forbid"
 unused = { level = "warn", priority = -1 }
 
-[lints.clippy]
+[workspace.lints.clippy]
 cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_precision_loss = "allow"
