@@ -17,6 +17,7 @@ pub use self::highlight_spacing::HighlightSpacing;
 pub use self::row::Row;
 pub use self::state::TableState;
 
+pub mod borders;
 mod cell;
 mod highlight_spacing;
 mod row;
@@ -271,6 +272,9 @@ pub struct Table<'a> {
 
     /// Controls how to distribute extra space among the columns
     flex: Flex,
+
+    /// Optional borders configuration.
+    borders: Option<borders::TableBorders>,
 }
 
 impl Default for Table<'_> {
@@ -289,6 +293,7 @@ impl Default for Table<'_> {
             highlight_symbol: Text::default(),
             highlight_spacing: HighlightSpacing::default(),
             flex: Flex::Start,
+            borders: None,
         }
     }
 }
@@ -723,6 +728,36 @@ impl<'a> Table<'a> {
         self.flex = flex;
         self
     }
+
+    /// Set the borders for the table.
+    ///
+    /// This method allows you to add borders around and between cells.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ratatui_table::borders::TableBorders;
+    /// use ratatui_table::{Row, Table};
+    ///
+    /// let rows = [Row::new(vec!["A", "B"]), Row::new(vec!["1", "2"])];
+    /// let table = Table::new(rows, [5, 5])
+    ///     .borders(TableBorders::default().top().bottom().sides().inner_vertical());
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn borders(mut self, borders: borders::TableBorders) -> Self {
+        self.borders = Some(borders);
+        self
+    }
+
+    /// Remove borders from the table.
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn remove_borders(mut self) -> Self {
+        self.borders = None;
+        self
+    }
+
 }
 
 impl Widget for Table<'_> {
@@ -782,6 +817,9 @@ impl StatefulWidget for &Table<'_> {
         self.render_rows(rows_area, buf, selection_width, state, &column_widths);
 
         self.render_footer(footer_area, buf, &column_widths);
+        if let Some(borders) = &self.borders {
+            self.render_borders(table_area, buf, &column_widths, borders);
+        }
     }
 }
 
@@ -835,6 +873,102 @@ impl Table<'_> {
                 let new_x = area.x + cell_area.x;
                 let area_to_render = Rect::new(new_x, area.y, cell_area.width, area.height);
                 cell.render(area_to_render, buf);
+            }
+        }
+    }
+
+
+    /// Render the table borders.
+    fn render_borders(
+        &self,
+        table_area: Rect,
+        buf: &mut Buffer,
+        column_widths: &[Rect],
+        borders: &borders::TableBorders,
+    ) {
+        use ratatui_core::symbols::line;
+
+        if !borders.has_any() || column_widths.is_empty() {
+            return;
+        }
+
+        let table_right = table_area.right();
+        let table_bottom = table_area.bottom();
+
+        // --- Outer borders ---
+        if borders.top && table_area.height > 0 {
+            for x in table_area.left()..table_right {
+                buf.set_string(x, table_area.y, line::HORIZONTAL, Style::new());
+            }
+        }
+        if borders.bottom && table_area.height > 0 {
+            let y = table_bottom.saturating_sub(1);
+            for x in table_area.left()..table_right {
+                buf.set_string(x, y, line::HORIZONTAL, Style::new());
+            }
+        }
+        if borders.left && table_area.width > 0 {
+            for y in table_area.top()..table_bottom {
+                buf.set_string(table_area.x, y, line::VERTICAL, Style::new());
+            }
+        }
+        if borders.right && table_area.width > 0 {
+            let x = table_right.saturating_sub(1);
+            for y in table_area.top()..table_bottom {
+                buf.set_string(x, y, line::VERTICAL, Style::new());
+            }
+        }
+
+        // --- Inner vertical borders ---
+        if borders.inner_vertical {
+            for col in column_widths {
+                let x = col.x + col.width;
+                if x >= table_area.x && x < table_right {
+                    for y in table_area.top()..table_bottom {
+                        buf.set_string(x, y, line::VERTICAL, Style::new());
+                    }
+                }
+            }
+        }
+
+        // --- Inner horizontal borders ---
+        if borders.inner_horizontal {
+            let header_h = self.header.as_ref()
+                .map_or(0, |h| h.height + h.top_margin + h.bottom_margin);
+            let footer_h = self.footer.as_ref()
+                .map_or(0, |f| f.height + f.top_margin + f.bottom_margin);
+            let rows_h: u16 = self.rows.iter()
+                .map(|r| r.height + r.top_margin + r.bottom_margin)
+                .sum();
+            if header_h + rows_h + footer_h == 0 {
+                return;
+            }
+
+            let mut y_cursor = table_area.y;
+
+            if self.header.is_some() {
+                y_cursor += header_h;
+                if y_cursor < table_bottom {
+                    for x in table_area.left()..table_right {
+                        buf.set_string(x, y_cursor, line::HORIZONTAL, Style::new());
+                    }
+                }
+            }
+
+            for row in &self.rows {
+                y_cursor += row.height + row.top_margin;
+                if y_cursor < table_bottom && row.bottom_margin > 0 {
+                    for x in table_area.left()..table_right {
+                        buf.set_string(x, y_cursor, line::HORIZONTAL, Style::new());
+                    }
+                }
+            }
+
+            y_cursor += footer_h;
+            if self.footer.is_some() && y_cursor < table_bottom {
+                for x in table_area.left()..table_right {
+                    buf.set_string(x, y_cursor, line::HORIZONTAL, Style::new());
+                }
             }
         }
     }

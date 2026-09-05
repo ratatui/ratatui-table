@@ -65,7 +65,10 @@
 
 extern crate alloc;
 
-mod table;
+pub mod table;
 
 #[doc(inline)]
 pub use table::{Cell, HighlightSpacing, Row, Table, TableState};
+#[doc(inline)]
+pub use table::borders::TableBorders;
+pub use table::borders;
