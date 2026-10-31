@@ -10,6 +10,7 @@ cargo run -p <example_crate>
 | example | what it shows |
 | --- | --- |
 | [lazy_table](apps/lazy_table) | a ten-million-entry journal whose rows are built on demand |
+| [selection](apps/selection) | row, column, and cell selection, and where the highlight symbol goes |
 
 These are built against the working tree, not the released crate, so they may use APIs that are
 not published yet.
@@ -20,7 +21,7 @@ The tapes in `vhs/` drive the examples for the GIFs in the README and in pull re
 [VHS], then run one from the repository root:
 
 ```shell
-just record lazy_table
+just record <example>
 ```
 
 The recipe builds the example first and writes `target/<example>.gif`, which is ignored along with
