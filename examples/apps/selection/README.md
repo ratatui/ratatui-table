@@ -7,14 +7,14 @@ decide where the highlight symbol gets its space.
 cargo run -p selection
 ```
 
-| key | effect |
-| --- | --- |
-| `↑` `↓` / `k` `j` | move the row selection |
-| `←` `→` / `h` `l` | move the column selection |
-| `r` `c` `x` `n` | select a row, a column, a cell, or nothing |
-| `p` | cycle [`HighlightPlacement`] |
-| `s` | cycle [`HighlightSpacing`] |
-| `q` | quit |
+| key               | effect                                     |
+| ----------------- | ------------------------------------------ |
+| `↑` `↓` / `k` `j` | move the row selection                     |
+| `←` `→` / `h` `l` | move the column selection                  |
+| `r` `c` `x` `n`   | select a row, a column, a cell, or nothing |
+| `p`               | cycle [`HighlightPlacement`]               |
+| `s`               | cycle [`HighlightSpacing`]                 |
+| `q`               | quit                                       |
 
 The selection starts on the second column: `SelectedColumn` and `FirstColumn` are the same layout
 whenever the first column is the selected one.
