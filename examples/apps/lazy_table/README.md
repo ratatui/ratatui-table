@@ -1,18 +1,18 @@
 # Lazy table demo
 
-A journal viewer over ten million entries, none of them stored. The row factory *is* the log, and
+A journal viewer over ten million entries, none of them stored. The row factory _is_ the log, and
 the counter in the status line reports how many entries the last frame actually had to build.
 
 ```shell
 cargo run -p lazy_table
 ```
 
-| key | effect |
-| --- | --- |
-| `↑` `↓` / `k` `j` | move the selection one entry |
-| `PgUp` `PgDn` | move it twenty entries |
+| key                    | effect                             |
+| ---------------------- | ---------------------------------- |
+| `↑` `↓` / `k` `j`      | move the selection one entry       |
+| `PgUp` `PgDn`          | move it twenty entries             |
 | `g` `G` / `Home` `End` | jump to the oldest or newest entry |
-| `q` | quit |
+| `q`                    | quit                               |
 
 Ten million lines is about a month of a chatty service. Collecting them into a `Vec` of rows would
 cost the month; [`Table::lazy_rows`] costs the screen. Hold `↓` for as long as you like, or press
