@@ -1,0 +1,15 @@
+[package]
+name = "lazy_table"
+description = "A ten-million-entry journal viewer built on demand with ratatui-table"
+edition = "2024"
+rust-version = "1.88.0"
+license = "MIT"
+publish = false
+
+[dependencies]
+rand = "0.9"
+ratatui = "0.30.2"
+ratatui-table = { path = "../../.." }
+
+[lints]
+workspace = true

@@ -30,6 +30,7 @@ examples:
 record example="":
     cargo build -p "{{example}}"
     vhs examples/vhs/"{{example}}.tape"
+
 docs:
     RUSTC="$(rustup which --toolchain nightly rustc)" \
       RUSTDOC="$(rustup which --toolchain nightly rustdoc)" \
