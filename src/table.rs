@@ -1315,6 +1315,7 @@ impl Table<'_> {
     }
 
     /// Render visible rows from a lazy provider, calling the factory only for the visible range.
+    #[expect(clippy::too_many_arguments)]
     fn render_lazy_rows(
         &self,
         area: Rect,
