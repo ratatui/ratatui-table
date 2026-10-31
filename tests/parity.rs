@@ -124,6 +124,32 @@ fn handles_small_areas_like_builtin_table() {
     }
 }
 
+/// The default [`HighlightPlacement`] must lay out exactly like the built-in table: reserve the
+/// symbol column at the left edge and shift every column right by its width.
+#[test]
+fn default_highlight_placement_matches_builtin_table() {
+    let area = Rect::new(0, 0, 24, 4);
+    let widths = [Constraint::Length(6), Constraint::Length(6)];
+    let rows = ["a", "b", "c"];
+
+    let extracted = Table::new(rows.map(|r| Row::new([r, r])), widths)
+        .highlight_symbol(">> ")
+        .flex(Flex::Start);
+    let builtin = builtin::Table::new(rows.map(|r| builtin::Row::new([r, r])), widths)
+        .highlight_symbol(">> ")
+        .flex(Flex::Start);
+
+    let mut extracted_state = TableState::new().with_selected(1);
+    let mut builtin_state = builtin::TableState::new().with_selected(1);
+    let mut extracted_buffer = Buffer::empty(area);
+    let mut builtin_buffer = Buffer::empty(area);
+
+    StatefulWidget::render(extracted, area, &mut extracted_buffer, &mut extracted_state);
+    StatefulWidget::render(builtin, area, &mut builtin_buffer, &mut builtin_state);
+
+    assert_eq!(extracted_buffer, builtin_buffer);
+}
+
 #[cfg(feature = "serde")]
 #[test]
 fn serializes_state_with_serde_feature() {

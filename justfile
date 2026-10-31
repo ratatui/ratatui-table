@@ -23,6 +23,13 @@ test:
     cargo test --no-default-features
     cargo test --no-default-features --features serde
 
+examples:
+    cargo clippy --workspace --all-targets -- -D warnings
+
+# Record an example with https://github.com/charmbracelet/vhs, into target/<example>.gif
+record example="":
+    cargo build -p "{{example}}"
+    vhs examples/vhs/"{{example}}.tape"
 docs:
     RUSTC="$(rustup which --toolchain nightly rustc)" \
       RUSTDOC="$(rustup which --toolchain nightly rustdoc)" \
@@ -47,4 +54,4 @@ semver-checks:
 package:
     cargo package --locked --allow-dirty
 
-check-all: fmt-check clippy-all test docs rdme-check deny minimal-versions semver-checks package
+check-all: fmt-check clippy-all test examples docs rdme-check deny minimal-versions semver-checks package
