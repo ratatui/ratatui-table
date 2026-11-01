@@ -9,6 +9,7 @@ cargo run -p <example_crate>
 
 | example | what it shows |
 | --- | --- |
+| [borders](apps/borders) | every `TableBorders` preset and glyph set, and where lines sit in a gap |
 | [lazy_table](apps/lazy_table) | a ten-million-entry journal whose rows are built on demand |
 | [selection](apps/selection) | row, column, and cell selection, and where the highlight symbol goes |
 

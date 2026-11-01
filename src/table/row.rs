@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::ops::Range;
 
 use ratatui_core::style::{Style, Styled};
 
@@ -248,6 +249,14 @@ impl Row<'_> {
         self.height
             .saturating_add(self.top_margin)
             .saturating_add(self.bottom_margin)
+    }
+
+    pub(crate) fn column_ranges(&self) -> impl Iterator<Item = Range<usize>> + '_ {
+        self.cells.iter().scan(0, |start, cell| {
+            let columns = *start..*start + usize::from(cell.column_span);
+            *start = columns.end;
+            Some(columns)
+        })
     }
 }
 
