@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-11-27
+
+### Other
+
+- Support borders (#22)
+
+
 ## [0.2.0] - 2026-10-31
 
 ### 🚀 Features
