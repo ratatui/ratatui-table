@@ -12,21 +12,26 @@ use itertools::Itertools;
 use ratatui_core::buffer::Buffer;
 use ratatui_core::layout::{Constraint, Flex, Layout, Rect};
 use ratatui_core::style::{Style, Styled};
+use ratatui_core::symbols::line;
 use ratatui_core::text::Text;
 use ratatui_core::widgets::{StatefulWidget, Widget};
 use ratatui_widgets::block::{Block, BlockExt};
 
+use self::border_grid::BorderGrid;
 pub use self::cell::Cell;
 pub use self::highlight_placement::HighlightPlacement;
 pub use self::highlight_spacing::HighlightSpacing;
 pub use self::row::Row;
 pub use self::state::TableState;
+pub use self::table_borders::TableBorders;
 
+mod border_grid;
 mod cell;
 mod highlight_placement;
 mod highlight_spacing;
 mod row;
 mod state;
+mod table_borders;
 
 /// Supplies the height of a lazy row *without* building it.
 ///
@@ -109,91 +114,118 @@ impl LazyRowProvider<'_> {
         self.heights.height_of(index)
     }
 
-    /// Return the indexes of the visible rows, as [`Table::visible_rows`] does for eager rows.
-    ///
-    /// The algorithm is the same, and produces the same window, but it only ever consults
-    /// [`LazyRowProvider::height_of`] instead of inspecting rows, so no row outside the returned
-    /// range is ever built. In particular, when the selection sits below the window the range is
-    /// anchored *at the selection and grown upwards* rather than scrolled down one row at a time,
-    /// which keeps the work proportional to the visible area rather than to the distance scrolled.
-    ///
-    /// The one case where the two differ is a selected row taller than the whole area: growing the
-    /// window upwards keeps such a row on screen (clipped), where scrolling down one row at a time
-    /// walks past it and leaves it off screen entirely.
-    fn visible_rows(&self, state: &TableState, area: Rect) -> (usize, usize) {
-        if self.count == 0 {
-            return (0, 0);
-        }
-        let last_row = self.count - 1;
-        let selected = state.selected.map(|selected| selected.min(last_row));
-
-        let mut start = state.offset.min(last_row);
-        if let Some(selected) = selected {
-            start = start.min(selected);
-        }
-
-        // An area with no lines shows no rows, but the offset is still where the table would
-        // resume from, so it is returned unchanged rather than reset.
-        if area.height == 0 {
-            return (start, start);
-        }
-
-        // Fill the area downwards from the start with the rows that fit in it completely.
-        //
-        // `height` only ever takes a checked sum that fits in the area, so a row reporting
-        // `u16::MAX` lines cannot overflow it, and `end` stops at `self.count`.
-        let mut end = start;
-        let mut height = 0_u16;
-        while end < self.count {
-            let Some(filled) = height.checked_add(self.height_of(end)) else {
-                break;
-            };
-            if filled > area.height {
-                break;
-            }
-            height = filled;
-            end += 1;
-            if window_is_full(start, end, area) {
-                break;
-            }
-        }
-
-        // Scroll down until the selected row is visible, by anchoring the window at the selection
-        // and growing it upwards until the area is full.
-        if let Some(selected) = selected
-            && selected >= end
-        {
-            // `selected <= last_row`, so `selected + 1` cannot overflow, and `start` is only
-            // decremented while it is above zero.
-            start = selected;
-            end = selected + 1;
-            height = self.height_of(selected);
-            while start > 0 && !window_is_full(start, end, area) {
-                let Some(filled) = height.checked_add(self.height_of(start - 1)) else {
-                    break;
-                };
-                if filled > area.height {
-                    break;
-                }
-                height = filled;
-                start -= 1;
-            }
-        }
-
-        // Include a partial row if there is space
-        if height < area.height && end < self.count && !window_is_full(start, end, area) {
-            end += 1;
-        }
-
-        (start, end)
+    fn visible_rows(
+        &self,
+        state: &TableState,
+        area: Rect,
+        borders: TableBorders,
+    ) -> (usize, usize) {
+        visible_row_range(self.count, state, area, borders, |index| {
+            let height = self.height_of(index);
+            (height, height)
+        })
     }
 }
 
-/// Whether a window of lazy rows can be grown no further.
+/// Return the indexes of the visible rows, for eager and lazy rows alike.
+///
+/// `row_heights` returns two heights for a row: the lines it needs to fit, and the lines it takes
+/// with its margins. This function reads nothing else about rows, so a lazy table only builds the
+/// rows in the returned range.
+///
+/// The window starts at the offset, or at the selection if that is above the offset, and fills
+/// downwards with the rows that fit completely. When the selection is below the window, this
+/// function anchors the window at the selection and grows it upwards instead of scrolling down one
+/// row at a time. The work then depends on the height of the area, not on how far the selection
+/// moved, and a selected row taller than the area stays on screen, clipped.
+fn visible_row_range(
+    count: usize,
+    state: &TableState,
+    area: Rect,
+    borders: TableBorders,
+    row_heights: impl Fn(usize) -> (u16, u16),
+) -> (usize, usize) {
+    if count == 0 {
+        return (0, 0);
+    }
+    // The lines a row needs to fit, and the lines it takes with its margins and separator.
+    let measure = |index| {
+        let (height, height_with_margin) = row_heights(index);
+        let extent =
+            height_with_margin.saturating_add(borders.separator_height_below(index, count));
+        (height, extent)
+    };
+    let last_row = count - 1;
+    let selected = state.selected.map(|selected| selected.min(last_row));
+
+    let mut start = state.offset.min(last_row);
+    if let Some(selected) = selected {
+        start = start.min(selected);
+    }
+
+    // An area with no lines shows no rows. The offset still marks where the table resumes once
+    // the area grows, so keep it rather than reset it.
+    if area.height == 0 {
+        return (start, start);
+    }
+
+    // Fill the area downwards from the start with the rows that fit in it completely.
+    //
+    // `height` only grows by checked or saturating sums, so a row reporting `u16::MAX` lines
+    // cannot overflow it, and `end` stops at `count`.
+    let mut end = start;
+    let mut height = 0_u16;
+    while end < count {
+        let (row_height, extent) = measure(end);
+        let Some(filled) = height.checked_add(row_height) else {
+            break;
+        };
+        if filled > area.height {
+            break;
+        }
+        height = height.saturating_add(extent);
+        end += 1;
+        if window_is_full(start, end, area) {
+            break;
+        }
+    }
+
+    // Scroll down until the selected row is visible, by anchoring the window at the selection and
+    // growing it upwards until the area is full.
+    if let Some(selected) = selected
+        && selected >= end
+    {
+        // `selected <= last_row`, so `selected + 1` cannot overflow, and `start` is only
+        // decremented while it is above zero.
+        start = selected;
+        end = selected + 1;
+        height = measure(selected).1;
+        let hanging_separator = borders.separator_height_below(selected, count);
+        while start > 0 && !window_is_full(start, end, area) {
+            let Some(filled) = height.checked_add(measure(start - 1).1) else {
+                break;
+            };
+            if filled > area.height.saturating_add(hanging_separator) {
+                break;
+            }
+            height = filled;
+            start -= 1;
+        }
+    }
+
+    // Include a partial row if there is space
+    if height < area.height && end < count && !window_is_full(start, end, area) {
+        end += 1;
+    }
+
+    (start, end)
+}
+
+/// Whether a window of rows can be grown no further.
 ///
 /// A window never holds more rows than the area has lines, plus one partial row. Rows are free to
-/// report a height of zero, so this bound is what keeps [`LazyRowProvider::visible_rows`]
-/// proportional to the area rather than to the number of rows.
+/// report a height of zero, so this bound is what keeps [`visible_row_range`] proportional to the
+/// area rather than to the number of rows.
 const fn window_is_full(start: usize, end: usize, area: Rect) -> bool {
     end - start > area.height as usize
 }
@@ -278,6 +310,30 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 ///
 /// [Examples]: https://github.com/ratatui/ratatui/blob/master/examples/README.md
 ///
+/// # Borders
+///
+/// [`Table::borders`] takes a [`TableBorders`] that says which lines to draw around and between the
+/// cells. [`Table::border_set`] picks their glyphs, and [`Table::border_style`] sets their style.
+/// The lines follow these rules:
+///
+/// - Outer lines sit on the edges of the table area, which is inside the [`Block`] if one is set.
+///   In an area at least two cells wide and high, [`TableBorders::OUTER`] draws the same frame as
+///   `.block(Block::bordered())`.
+/// - An inner vertical line sits in the middle of the gap between two columns, or just left of the
+///   middle when the gap is even. It needs a gap of at least one cell, so under
+///   [`TableBorders::INNER_VERTICAL`] a [`Table::column_spacing`] of 0 lays out as 1. A highlight
+///   symbol stays right of the line, inside the box of the column it precedes.
+/// - The header separator, the footer separator and each row separator take a terminal line of
+///   their own. Row margins are padding inside a row's box, and vertical lines run through them. A
+///   row separator stays blank when the row after it does not fit.
+/// - A cell spanning several columns hides the vertical lines it covers, so the lines above and
+///   below it end in `┴` and `┬`.
+/// - The table patches [`Table::border_style`] over the border cells after drawing everything else.
+///   A row highlight also covers the vertical lines inside its row. A column highlight also covers
+///   the row separators inside its column. Neither covers the outer frame.
+/// - A [`Block`] draws outside the lines and does not join them. Use [`TableBorders::OUTER`] for a
+///   frame that joins the inner lines.
+///
 /// # Constructor methods
 ///
 /// - [`Table::new`] creates a new [`Table`] with the given rows.
@@ -300,6 +356,9 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 /// - [`Table::highlight_symbol`] sets the symbol to be displayed in front of the selected row.
 /// - [`Table::highlight_spacing`] sets when to show the highlight spacing.
 /// - [`Table::highlight_placement`] sets which columns the highlight spacing is added to.
+/// - [`Table::borders`] sets which lines to draw around and between the cells.
+/// - [`Table::border_set`] sets the glyphs of those lines.
+/// - [`Table::border_style`] sets the style of those lines.
 ///
 /// # Example
 ///
@@ -506,6 +565,15 @@ pub struct Table<'a> {
 
     /// Optional lazy row provider used instead of `rows` when set
     lazy: Option<LazyRowProvider<'a>>,
+
+    /// Which lines to draw around and between the cells
+    borders: TableBorders,
+
+    /// Glyphs of the lines and their junctions
+    border_set: line::Set<'a>,
+
+    /// Style patched over the lines
+    border_style: Style,
 }
 
 impl Default for Table<'_> {
@@ -526,6 +594,9 @@ impl Default for Table<'_> {
             highlight_placement: HighlightPlacement::default(),
             flex: Flex::Start,
             lazy: None,
+            borders: TableBorders::empty(),
+            border_set: line::NORMAL,
+            border_style: Style::new(),
         }
     }
 }
@@ -703,6 +774,9 @@ impl<'a> Table<'a> {
     /// let widths = [Constraint::Length(5), Constraint::Length(5)];
     /// let table = Table::new(rows, widths).column_spacing(1);
     /// ```
+    ///
+    /// Under [`TableBorders::INNER_VERTICAL`], a spacing of 0 lays out as 1 so that the line has a
+    /// cell to sit in.
     #[must_use = "method moves the value of self and returns the modified value"]
     pub const fn column_spacing(mut self, spacing: u16) -> Self {
         self.column_spacing = spacing;
@@ -713,6 +787,9 @@ impl<'a> Table<'a> {
     ///
     /// The `block` parameter is of type [`Block`]. This holds the specified block to be
     /// created around the [`Table`]
+    ///
+    /// The block's border does not join the table's lines. See [`Table::borders`] for lines
+    /// between the cells and a frame that joins them.
     ///
     /// This is a fluent setter method which must be chained or used as it consumes self
     ///
@@ -962,6 +1039,104 @@ impl<'a> Table<'a> {
         self
     }
 
+    /// Sets which lines to draw around and between the cells.
+    ///
+    /// Defaults to [`TableBorders::empty`], which draws no lines. See [Borders](Table#borders) for
+    /// where the lines go.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ratatui::buffer::Buffer;
+    /// use ratatui::layout::{Constraint, Rect};
+    /// use ratatui::widgets::Widget;
+    /// use ratatui_table::{Row, Table, TableBorders};
+    ///
+    /// let rows = [Row::new(["1", "2"]), Row::new(["3", "4"])];
+    /// let table = Table::new(rows, [Constraint::Length(1); 2])
+    ///     .header(Row::new(["A", "B"]))
+    ///     .borders(TableBorders::ALL);
+    ///
+    /// let mut buf = Buffer::empty(Rect::new(0, 0, 5, 7));
+    /// Widget::render(table, buf.area, &mut buf);
+    /// let expected = Buffer::with_lines([
+    ///     "┌─┬─┐",
+    ///     "│A│B│",
+    ///     "├─┼─┤",
+    ///     "│1│2│",
+    ///     "├─┼─┤",
+    ///     "│3│4│",
+    ///     "└─┴─┘",
+    /// ]);
+    /// assert_eq!(buf, expected);
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn borders(mut self, borders: TableBorders) -> Self {
+        self.borders = borders;
+        self
+    }
+
+    /// Sets the glyphs of the lines and of the junctions where they meet.
+    ///
+    /// Defaults to [`line::NORMAL`]. Any [`line::Set`] works, including one of your own. Each
+    /// junction takes the field that matches the lines meeting there, such as `cross` where four
+    /// lines meet or `horizontal_down` for a `┬`.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ratatui::layout::Constraint;
+    /// use ratatui::symbols::line;
+    /// use ratatui_table::{Row, Table, TableBorders};
+    ///
+    /// let rows = [Row::new(vec!["Cell1", "Cell2"])];
+    /// let widths = [Constraint::Length(5), Constraint::Length(5)];
+    /// let table = Table::new(rows, widths)
+    ///     .borders(TableBorders::ALL)
+    ///     .border_set(line::ROUNDED);
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn border_set(mut self, border_set: line::Set<'a>) -> Self {
+        self.border_set = border_set;
+        self
+    }
+
+    /// Sets the style of the lines.
+    ///
+    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
+    /// your own type that implements [`Into<Style>`]).
+    ///
+    /// The table patches this style over the border cells after drawing everything else, so any
+    /// property it leaves unset shows the table, row or highlight style underneath. To keep a
+    /// highlight off the lines, set every property that highlight style sets.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ratatui::layout::Constraint;
+    /// use ratatui::style::{Style, Stylize};
+    /// use ratatui_table::{Row, Table, TableBorders};
+    ///
+    /// let rows = [Row::new(vec!["Cell1", "Cell2"])];
+    /// let widths = [Constraint::Length(5), Constraint::Length(5)];
+    /// let table = Table::new(rows, widths)
+    ///     .borders(TableBorders::OUTER | TableBorders::INNER_VERTICAL)
+    ///     .border_style(Style::new().dark_gray());
+    /// ```
+    ///
+    /// [`Color`]: ratatui_core::style::Color
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn border_style<S: Into<Style>>(mut self, style: S) -> Self {
+        self.border_style = style.into();
+        self
+    }
+
     /// Set how extra space is distributed amongst columns.
     ///
     /// This determines how the space is distributed when the constraints are satisfied. By default,
@@ -1141,8 +1316,11 @@ impl StatefulWidget for &Table<'_> {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         buf.set_style(area, self.style);
         self.block.as_ref().render(area, buf);
-        let table_area = self.block.inner_if_some(area);
+        let frame = self.block.inner_if_some(area);
+        let table_area = self.borders.inner(frame);
+        let mut grid = BorderGrid::new(self.borders, frame);
         if table_area.is_empty() {
+            grid.render(buf, &self.border_set, self.border_style);
             return;
         }
 
@@ -1173,9 +1351,26 @@ impl StatefulWidget for &Table<'_> {
             column_count,
             &symbol_columns,
         );
-        let (header_area, rows_area, footer_area) = self.layout(table_area);
+        grid.add_columns(table_area, &column_widths, &symbol_columns, selection_width);
+        let [
+            header_top,
+            header_area,
+            header_bottom,
+            header_line,
+            rows_area,
+            footer_line,
+            footer_top,
+            footer_area,
+            footer_bottom,
+        ] = self.layout(table_area);
 
-        self.render_header(header_area, buf, &column_widths);
+        self.render_fixed_row(self.header.as_ref(), header_area, buf, &column_widths);
+        if let Some(header) = &self.header {
+            grid.add_spans(header_top.y..header_bottom.bottom(), header);
+        }
+        if !header_line.is_empty() {
+            grid.add_horizontal(header_line.y);
+        }
 
         self.render_rows(
             rows_area,
@@ -1184,63 +1379,62 @@ impl StatefulWidget for &Table<'_> {
             state,
             &column_widths,
             &symbol_columns,
+            &mut grid,
         );
 
-        self.render_footer(footer_area, buf, &column_widths);
+        if !footer_line.is_empty() {
+            grid.add_horizontal(footer_line.y);
+        }
+        self.render_fixed_row(self.footer.as_ref(), footer_area, buf, &column_widths);
+        if let Some(footer) = &self.footer {
+            grid.add_spans(footer_top.y..footer_bottom.bottom(), footer);
+        }
+
+        grid.render(buf, &self.border_set, self.border_style);
     }
 }
 
 // private methods for rendering
 impl Table<'_> {
-    /// Splits the table area into a header, rows area and a footer
-    fn layout(&self, area: Rect) -> (Rect, Rect, Rect) {
+    fn layout(&self, area: Rect) -> [Rect; 9] {
         let header_top_margin = self.header.as_ref().map_or(0, |h| h.top_margin);
         let header_height = self.header.as_ref().map_or(0, |h| h.height);
         let header_bottom_margin = self.header.as_ref().map_or(0, |h| h.bottom_margin);
         let footer_top_margin = self.footer.as_ref().map_or(0, |h| h.top_margin);
         let footer_height = self.footer.as_ref().map_or(0, |f| f.height);
         let footer_bottom_margin = self.footer.as_ref().map_or(0, |h| h.bottom_margin);
-        let layout = Layout::vertical([
+        let header_line = u16::from(
+            self.header.is_some() && self.borders.contains(TableBorders::HEADER_SEPARATOR),
+        );
+        let footer_line = u16::from(
+            self.footer.is_some() && self.borders.contains(TableBorders::FOOTER_SEPARATOR),
+        );
+        Layout::vertical([
             Constraint::Length(header_top_margin),
             Constraint::Length(header_height),
             Constraint::Length(header_bottom_margin),
+            Constraint::Length(header_line),
             Constraint::Min(0),
+            Constraint::Length(footer_line),
             Constraint::Length(footer_top_margin),
             Constraint::Length(footer_height),
             Constraint::Length(footer_bottom_margin),
         ])
-        .split(area);
-        let (header_area, rows_area, footer_area) = (layout[1], layout[3], layout[5]);
-        (header_area, rows_area, footer_area)
+        .areas(area)
     }
 
-    /// Render the header cells, if they are not `None`
-    ///
     /// The `x` and `width` fields of each `Rect` in `column_widths` denote the starting
     /// x-coordinate and width of each column in the table.
-    fn render_header(&self, area: Rect, buf: &mut Buffer, column_widths: &[Rect]) {
-        if let Some(ref header) = self.header {
-            buf.set_style(area, header.style);
-            for (cell_area, cell) in column_widths.iter().zip(header.cells.iter()) {
-                let new_x = area.x + cell_area.x;
-                let area_to_render = Rect::new(new_x, area.y, cell_area.width, area.height);
-                cell.render(area_to_render, buf);
-            }
-        }
-    }
-
-    /// Render the footer cells, if they are not `None`
-    ///
-    /// The `x` and `width` fields of each `Rect` in `column_widths` denote the starting
-    /// x-coordinate and width of each column in the table.
-    fn render_footer(&self, area: Rect, buf: &mut Buffer, column_widths: &[Rect]) {
-        if let Some(ref footer) = self.footer {
-            buf.set_style(area, footer.style);
-            for (cell_area, cell) in column_widths.iter().zip(footer.cells.iter()) {
-                let new_x = area.x + cell_area.x;
-                let area_to_render = Rect::new(new_x, area.y, cell_area.width, area.height);
-                cell.render(area_to_render, buf);
-            }
+    fn render_fixed_row(
+        &self,
+        row: Option<&Row>,
+        area: Rect,
+        buf: &mut Buffer,
+        column_widths: &[Rect],
+    ) {
+        if let Some(row) = row {
+            buf.set_style(area, row.style);
+            self.render_row_cells(buf, column_widths, &row.cells, area);
         }
     }
 
@@ -1248,6 +1442,7 @@ impl Table<'_> {
     ///
     /// The `x` and `width` fields of each `Rect` in `column_widths` denote the starting
     /// x-coordinate and width of each column in the table.
+    #[expect(clippy::too_many_arguments)]
     fn render_rows(
         &self,
         area: Rect,
@@ -1256,6 +1451,7 @@ impl Table<'_> {
         state: &mut TableState,
         columns_widths: &[Rect],
         symbol_columns: &[bool],
+        grid: &mut BorderGrid,
     ) {
         if let Some(ref provider) = self.lazy {
             self.render_lazy_rows(
@@ -1266,6 +1462,7 @@ impl Table<'_> {
                 columns_widths,
                 symbol_columns,
                 provider,
+                grid,
             );
             return;
         }
@@ -1277,7 +1474,7 @@ impl Table<'_> {
         let (start_index, end_index) = self.visible_rows(state, area);
         state.offset = start_index;
 
-        let mut y_offset = 0;
+        let mut y_offset = 0_u16;
 
         let mut selected_row_area = None;
         for (i, row) in self
@@ -1287,7 +1484,8 @@ impl Table<'_> {
             .skip(start_index)
             .take(end_index - start_index)
         {
-            let y = area.y + y_offset + row.top_margin;
+            let top = area.y.saturating_add(y_offset);
+            let y = top.saturating_add(row.top_margin);
             let height = (y + row.height).min(area.bottom()).saturating_sub(y);
             let row_area = Rect { y, height, ..area };
             buf.set_style(row_area, row.style);
@@ -1304,11 +1502,18 @@ impl Table<'_> {
                 symbol_columns,
                 selection_width,
             );
-            self.render_row_cells(buf, columns_widths.iter().collect(), &row.cells, row_area);
+            self.render_row_cells(buf, columns_widths, &row.cells, row_area);
             if is_selected {
                 selected_row_area = Some(row_area);
             }
-            y_offset += row.height_with_margin();
+            y_offset = y_offset.saturating_add(row.height_with_margin());
+            let line_y = area.y.saturating_add(y_offset);
+            grid.add_spans(top..line_y.min(area.bottom()), row);
+            let below = self.borders.separator_height_below(i, self.rows.len());
+            if below > 0 && i + 1 < end_index && line_y < area.bottom() {
+                grid.add_horizontal(line_y);
+            }
+            y_offset = y_offset.saturating_add(below);
         }
 
         self.apply_highlight_styles(buf, area, selected_row_area, state, columns_widths);
@@ -1325,12 +1530,13 @@ impl Table<'_> {
         columns_widths: &[Rect],
         symbol_columns: &[bool],
         provider: &LazyRowProvider,
+        grid: &mut BorderGrid,
     ) {
         if provider.count == 0 {
             return;
         }
 
-        let (start_index, end_index) = provider.visible_rows(state, area);
+        let (start_index, end_index) = provider.visible_rows(state, area, self.borders);
         state.offset = start_index;
 
         let mut y = area.y;
@@ -1360,11 +1566,17 @@ impl Table<'_> {
                 symbol_columns,
                 selection_width,
             );
-            self.render_row_cells(buf, columns_widths.iter().collect(), &row.cells, row_area);
+            self.render_row_cells(buf, columns_widths, &row.cells, row_area);
             if is_selected {
                 selected_row_area = Some(row_area);
             }
+            grid.add_spans(y..y.saturating_add(row_height).min(area.bottom()), &row);
             y = y.saturating_add(row_height);
+            let below = self.borders.separator_height_below(index, provider.count);
+            if below > 0 && index + 1 < end_index && y < area.bottom() {
+                grid.add_horizontal(y);
+            }
+            y = y.saturating_add(below);
         }
 
         self.apply_highlight_styles(buf, area, selected_row_area, state, columns_widths);
@@ -1414,16 +1626,16 @@ impl Table<'_> {
     fn render_row_cells(
         &self,
         buf: &mut Buffer,
-        column_widths: Vec<&Rect>,
-        cells: &Vec<Cell>,
+        column_widths: &[Rect],
+        cells: &[Cell],
         row_area: Rect,
     ) {
-        let mut column_widths_iterator = column_widths.into_iter();
+        let mut column_widths_iterator = column_widths.iter();
         for current_cell in cells {
             if let Some(cell_area) = Self::get_cell_area(
                 &mut column_widths_iterator,
                 current_cell.column_span,
-                self.column_spacing,
+                self.borders.column_spacing(self.column_spacing),
             ) {
                 let new_x = row_area.x + cell_area.x;
                 let area_to_render = Rect::new(new_x, row_area.y, cell_area.width, row_area.height);
@@ -1516,53 +1728,11 @@ impl Table<'_> {
         Some(Rect::new(first.x, first.y, width, 1))
     }
 
-    /// Return the indexes of the visible rows.
-    ///
-    /// The algorithm works as follows:
-    /// - start at the offset and calculate the height of the rows that can be displayed within the
-    ///   area.
-    /// - if the selected row is not visible, scroll the table to ensure it is visible.
-    /// - if there is still space to fill then there's a partial row at the end which should be
-    ///   included in the view.
     fn visible_rows(&self, state: &TableState, area: Rect) -> (usize, usize) {
-        let last_row = self.rows.len().saturating_sub(1);
-        let mut start = state.offset.min(last_row);
-
-        if let Some(selected) = state.selected {
-            start = start.min(selected);
-        }
-
-        let mut end = start;
-        let mut height = 0;
-
-        for item in self.rows.iter().skip(start) {
-            if height + item.height > area.height {
-                break;
-            }
-            height += item.height_with_margin();
-            end += 1;
-        }
-
-        if let Some(selected) = state.selected {
-            let selected = selected.min(last_row);
-
-            // scroll down until the selected row is visible
-            while selected >= end {
-                height = height.saturating_add(self.rows[end].height_with_margin());
-                end += 1;
-                while height > area.height {
-                    height = height.saturating_sub(self.rows[start].height_with_margin());
-                    start += 1;
-                }
-            }
-        }
-
-        // Include a partial row if there is space
-        if height < area.height && end < self.rows.len() {
-            end += 1;
-        }
-
-        (start, end)
+        visible_row_range(self.rows.len(), state, area, self.borders, |index| {
+            let row = &self.rows[index];
+            (row.height, row.height_with_margin())
+        })
     }
 
     /// Get all offsets and widths of all user specified columns.
@@ -1591,7 +1761,7 @@ impl Table<'_> {
         let content_width = max_width.saturating_sub(selection_width * slots);
         let rects = Layout::horizontal(widths)
             .flex(self.flex)
-            .spacing(self.column_spacing)
+            .spacing(self.borders.column_spacing(self.column_spacing))
             .split(Rect::new(0, 0, content_width, 1));
 
         let mut shift = 0;
@@ -1626,7 +1796,12 @@ impl Table<'_> {
             .iter()
             .chain(self.footer.iter())
             .chain(self.header.iter())
-            .map(|r| r.cells.len())
+            .map(|row| {
+                row.cells
+                    .iter()
+                    .map(|cell| usize::from(cell.column_span))
+                    .sum()
+            })
             .chain(Some(lazy_columns))
             .max()
             .unwrap_or_default()
@@ -1707,10 +1882,16 @@ mod tests {
         let area = Rect::new(0, 0, 1, u16::MAX);
 
         let state = TableState::default();
-        assert_eq!(lazy.visible_rows(&state, area), (0, 1));
+        assert_eq!(
+            lazy.visible_rows(&state, area, TableBorders::empty()),
+            (0, 1)
+        );
 
         let state = TableState::default().with_selected(3);
-        assert_eq!(lazy.visible_rows(&state, area), (1, 4));
+        assert_eq!(
+            lazy.visible_rows(&state, area, TableBorders::empty()),
+            (1, 4)
+        );
     }
 
     #[test]
@@ -2165,6 +2346,40 @@ mod tests {
                 "Foot1 Foot2    ",
             ]);
             assert_eq!(buf, expected);
+        }
+
+        #[test]
+        fn render_header_and_footer_cells_across_their_column_span() {
+            let mut buf = Buffer::empty(Rect::new(0, 0, 11, 3));
+            let table = Table::new([Row::new(["a", "b"])], [Constraint::Length(5); 2])
+                .header(Row::new([Cell::new("Header spans").column_span(2)]))
+                .footer(Row::new([Cell::new("Footer spans").column_span(2)]));
+            Widget::render(table, buf.area, &mut buf);
+            #[rustfmt::skip]
+            let expected = Buffer::with_lines([
+                "Header span",
+                "a     b    ",
+                "Footer span",
+            ]);
+            assert_eq!(buf, expected);
+        }
+
+        #[test]
+        fn render_default_widths_split_between_every_spanned_column() {
+            let mut buf = Buffer::empty(Rect::new(0, 0, 11, 1));
+            let rows = [Row::new([Cell::new("AB").column_span(2), Cell::new("C")])];
+            Widget::render(Table::default().rows(rows), buf.area, &mut buf);
+            assert_eq!(buf, Buffer::with_lines(["AB      C  "]));
+        }
+
+        #[test]
+        fn render_keeps_selected_column_covered_by_a_spanned_cell() {
+            let mut buf = Buffer::empty(Rect::new(0, 0, 5, 1));
+            let rows = [Row::new([Cell::new("AB").column_span(2), Cell::new("C")])];
+            let table = Table::new(rows, [Constraint::Length(1); 3]);
+            let mut state = TableState::new().with_selected_column(Some(2));
+            StatefulWidget::render(table, buf.area, &mut buf, &mut state);
+            assert_eq!(state.selected_column(), Some(2));
         }
 
         #[test]
@@ -3319,6 +3534,28 @@ mod tests {
         assert_eq!(column_count, expected);
     }
 
+    #[rstest]
+    #[case::spanned_cell_counts_every_column(
+        Row::new([Cell::new("AB").column_span(2), Cell::new("C")]),
+        3
+    )]
+    #[case::zero_span_cell_counts_no_column(
+        Row::new([Cell::new("hidden").column_span(0), Cell::new("C")]),
+        1
+    )]
+    fn column_count_counts_spanned_columns(#[case] row: Row, #[case] expected: usize) {
+        let table = Table::new([row], Vec::<Constraint>::new());
+        assert_eq!(table.column_count(), expected);
+    }
+
+    #[test]
+    fn column_count_counts_header_and_footer_spans() {
+        let table = Table::new([Row::new(["a"])], Vec::<Constraint>::new())
+            .header(Row::new([Cell::new("H").column_span(3)]))
+            .footer(Row::new([Cell::new("F").column_span(2)]));
+        assert_eq!(table.column_count(), 3);
+    }
+
     #[test]
     fn render_in_minimal_buffer() {
         let mut buffer = Buffer::empty(Rect::new(0, 0, 1, 1));
@@ -3415,7 +3652,7 @@ mod tests {
             Cell::new("XYZXYZXYZXY"),
         ],
         [
-            "   ABCDEFGH 123",
+            "   ABCDEF 12 XY",
             "               ", // row 2
             "               ", // row 3
         ])]
@@ -3430,7 +3667,7 @@ mod tests {
             Cell::new("XYZXYZXYZXY"),
         ],
         [
-            ">>>ABCDEFGH 123",
+            ">>>ABCDEF 12 XY",
             "               ", // row 2
             "               ", // row 3
         ])]
@@ -3445,7 +3682,7 @@ mod tests {
             Cell::new("XYZXYZXYZXY"),
         ],
         [
-            "ABCDEFGHIJ 1234",
+            "ABCDEFG 123 XYZ",
             "               ", // row 2
             "               ", // row 3
         ])]
@@ -3460,7 +3697,7 @@ mod tests {
             Cell::new("XYZXYZXYZXY"),
         ],
         [
-            ">>>ABCDEFGH 123",
+            ">>>ABCDEF 12 XY",
             "               ", // row 2
             "               ", // row 3
         ])]

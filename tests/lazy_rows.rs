@@ -10,7 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::Line;
-use ratatui_table::{HighlightSpacing, Row, Table, TableState};
+use ratatui_table::{HighlightSpacing, Row, Table, TableBorders, TableState};
 use ratatui_widgets::block::Block;
 use rstest::rstest;
 
@@ -1091,15 +1091,6 @@ fn assert_matches_eager_table(
     let row = |index: usize| Row::new([format!("row {index:04}")]);
     let (width, height) = area;
 
-    // The one case where the two deliberately differ: a selected row taller than the whole area.
-    // Eager rows scroll past such a row and leave it off screen, lazy rows anchor the window on it
-    // and clip it. `lazy_rows_keep_an_oversized_selected_row_visible` pins the lazy behaviour.
-    if let Some(selected) = selected
-        && heights(selected.min(row_count - 1)) > height
-    {
-        return;
-    }
-
     let mut lazy_state = TableState::default().with_offset(offset);
     lazy_state.select(selected);
     let lazy =
@@ -1158,11 +1149,66 @@ fn lazy_rows_render_like_eager_rows_of_varying_height() {
         |index| (index % 4) as u16 + 1,
         |index| if index == 12 { 4 } else { 1 },
     ] {
-        for area_height in 1_u16..=8 {
+        for area_height in 0_u16..=8 {
             for offset in [0_usize, 1, 7, 30] {
                 for selected in [None, Some(0), Some(2), Some(12), Some(29)] {
                     assert_matches_eager_table(30, heights, (12, area_height), offset, selected);
                 }
+            }
+        }
+    }
+}
+
+#[rstest]
+fn lazy_rows_scroll_like_eager_rows_one_row_per_step_across_row_separators(
+    #[values(
+        TableBorders::empty(),
+        TableBorders::INNER_HORIZONTAL,
+        TableBorders::INNER_HORIZONTAL | TableBorders::HEADER_SEPARATOR,
+        TableBorders::ALL
+    )]
+    borders: TableBorders,
+    #[values(1, 2)] row_height: u16,
+) {
+    let row = |index: usize| Row::new([format!("r{index}")]);
+    let chrome = 1
+        + u16::from(borders.contains(TableBorders::HEADER_SEPARATOR))
+        + u16::from(borders.contains(TableBorders::TOP))
+        + u16::from(borders.contains(TableBorders::BOTTOM));
+    for row_count in 1..=6 {
+        let eager = Table::new(
+            (0..row_count).map(|index| row(index).height(row_height)),
+            [Constraint::Length(3)],
+        )
+        .header(Row::new(["id"]))
+        .borders(borders);
+        let lazy = Table::lazy_rows(row_count, [Constraint::Length(3)], row)
+            .lazy_row_height(row_height)
+            .header(Row::new(["id"]))
+            .borders(borders);
+        let shortest_area_fitting_a_row = chrome + row_height;
+        for height in shortest_area_fitting_a_row..=chrome + 8 {
+            let mut eager_state = TableState::default();
+            let mut lazy_state = TableState::default();
+            for selected in (0..row_count).chain((0..row_count).rev()) {
+                let offset = eager_state.offset();
+                eager_state.select(Some(selected));
+                lazy_state.select(Some(selected));
+                let case = format!(
+                    "{borders:?}, {row_count} rows of height {row_height}, area height {height}, \
+                     selected {selected}"
+                );
+                assert_eq!(
+                    render_table(lazy.clone(), &mut lazy_state, 7, height),
+                    render_table(eager.clone(), &mut eager_state, 7, height),
+                    "{case}"
+                );
+                assert_eq!(lazy_state.offset(), eager_state.offset(), "{case}");
+                assert!(
+                    eager_state.offset().abs_diff(offset) <= 1,
+                    "offset moved from {offset} to {}: {case}",
+                    eager_state.offset()
+                );
             }
         }
     }

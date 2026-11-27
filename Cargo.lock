@@ -93,6 +93,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "borders"
+version = "0.0.0"
+dependencies = [
+ "ratatui",
+ "ratatui-table",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1150,6 +1158,7 @@ dependencies = [
 name = "ratatui-table"
 version = "0.2.0"
 dependencies = [
+ "bitflags 2.13.2",
  "itertools 0.15.0",
  "pretty_assertions",
  "ratatui",

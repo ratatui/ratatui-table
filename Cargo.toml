@@ -29,9 +29,10 @@ std = [
   "serde?/std",
   "strum/std",
 ]
-serde = ["dep:serde", "ratatui-core/serde"]
+serde = ["dep:serde", "bitflags/serde", "ratatui-core/serde"]
 
 [dependencies]
+bitflags = { version = "2.12", default-features = false }
 itertools = { version = "0.15", default-features = false, features = ["use_alloc"] }
 ratatui-core = { version = "0.1.2", default-features = false }
 ratatui-widgets = { version = "0.3.2", default-features = false }

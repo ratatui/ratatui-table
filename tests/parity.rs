@@ -1,3 +1,14 @@
+//! Rendering comparisons with Ratatui's built-in Table.
+//!
+//! Intentional divergences from the built-in Table, which these tests avoid:
+//!
+//! - [`Cell::column_span`] counts every column it covers, so a table without explicit widths splits
+//!   its width between all of them, and a selected column may sit under a spanned cell.
+//! - The header and footer honor [`Cell::column_span`] like the other rows.
+//! - Scrolling keeps the selection inside the window. The table anchors a selected row taller than
+//!   the area and clips it, where the built-in Table scrolls past it. An area with no room for rows
+//!   keeps the offset, where the built-in Table moves it past the selection.
+
 use pretty_assertions::assert_eq;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Flex, Rect};
