@@ -878,7 +878,7 @@ impl<'a> Table<'a> {
     ///
     /// [`Color`]: ratatui_core::style::Color
     #[must_use = "method moves the value of self and returns the modified value"]
-    #[deprecated(note = "use `row_highlight_style()` instead")]
+    #[deprecated(note = "use `row_highlight_style()` instead", since = "0.2.1")]
     pub fn highlight_style<S: Into<Style>>(self, highlight_style: S) -> Self {
         self.row_highlight_style(highlight_style)
     }
@@ -1781,7 +1781,7 @@ impl Table<'_> {
     fn row_count(&self) -> usize {
         self.lazy
             .as_ref()
-            .map_or_else(|| self.rows.len(), |provider| provider.count)
+            .map_or(self.rows.len(), |provider| provider.count)
     }
 
     fn column_count(&self) -> usize {
