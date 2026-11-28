@@ -19,6 +19,7 @@ use ratatui_widgets::block::{Block, BlockExt};
 
 use self::border_grid::BorderGrid;
 pub use self::cell::Cell;
+use self::cow_slice::CowSlice;
 pub use self::highlight_placement::HighlightPlacement;
 pub use self::highlight_spacing::HighlightSpacing;
 pub use self::row::Row;
@@ -27,6 +28,7 @@ pub use self::table_borders::TableBorders;
 
 mod border_grid;
 mod cell;
+mod cow_slice;
 mod highlight_placement;
 mod highlight_spacing;
 mod row;
@@ -338,6 +340,8 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 ///
 /// - [`Table::new`] creates a new [`Table`] with the given rows.
 /// - [`Table::default`] creates an empty [`Table`]. You can then add rows using [`Table::rows`].
+/// - `Table::from(&rows)` creates a [`Table`] that borrows its rows. See [Borrowing
+///   rows](#borrowing-rows).
 ///
 /// # Setter methods
 ///
@@ -518,11 +522,59 @@ impl core::hash::Hash for LazyRowProvider<'_> {
 /// # }
 /// ```
 ///
+/// # Borrowing rows
+///
+/// A table can borrow rows that your app keeps in its state, so you build the rows once and draw
+/// them every frame without cloning them. `Table::from` accepts a slice, an array reference, or a
+/// reference to a [`Vec`] of rows. A table built this way has no column widths, so set them with
+/// [`Table::widths`].
+///
+/// `Row::from(&cells)` borrows cells the same way, and `Row::from(&row)` borrows a header or
+/// footer row that you keep in your state. A [`Table::lazy_rows`] factory can also return
+/// `Row::from(&cached[index])` to draw rows from a cache.
+///
+/// Each frame, a table counts its columns until a row has a cell for every width. When the header
+/// or the first row has one, a borrowed table reads only that row and the visible rows, so the
+/// time to draw it depends on the area, not on how many rows it has. Without widths, the table
+/// reads every row to size its default columns.
+///
+/// ```rust
+/// use ratatui::buffer::Buffer;
+/// use ratatui::layout::{Constraint, Rect};
+/// use ratatui::widgets::{Block, StatefulWidget};
+/// use ratatui_table::{Row, Table, TableState};
+///
+/// struct App {
+///     rows: Vec<Row<'static>>,
+///     header: Row<'static>,
+///     state: TableState,
+/// }
+///
+/// impl App {
+///     fn render(&mut self, area: Rect, buf: &mut Buffer, title: &str) {
+///         Table::from(&self.rows)
+///             .widths([Constraint::Length(5), Constraint::Length(5)])
+///             .header(Row::from(&self.header))
+///             .block(Block::bordered().title(title))
+///             .render(area, buf, &mut self.state);
+///     }
+/// }
+///
+/// let mut app = App {
+///     rows: vec![Row::new(["Cell1", "Cell2"]), Row::new(["Cell3", "Cell4"])],
+///     header: Row::new(["Col1", "Col2"]),
+///     state: TableState::default().with_selected(0),
+/// };
+/// let area = Rect::new(0, 0, 15, 5);
+/// let mut buf = Buffer::empty(area);
+/// app.render(area, &mut buf, "Table");
+/// ```
+///
 /// [`Stylize`]: ratatui_core::style::Stylize
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Table<'a> {
     /// Data to display in each row
-    rows: Vec<Row<'a>>,
+    rows: CowSlice<'a, Row<'a>>,
 
     /// Optional header
     header: Option<Row<'a>>,
@@ -579,7 +631,7 @@ pub struct Table<'a> {
 impl Default for Table<'_> {
     fn default() -> Self {
         Self {
-            rows: Vec::new(),
+            rows: CowSlice::default(),
             header: None,
             footer: None,
             widths: Vec::new(),
@@ -605,7 +657,8 @@ impl<'a> Table<'a> {
     /// Creates a new [`Table`] widget with the given rows.
     ///
     /// The `rows` parameter accepts any value that can be converted into an iterator of [`Row`]s.
-    /// This includes arrays, slices, and [`Vec`]s.
+    /// This includes arrays, slices, and [`Vec`]s. To draw rows that you keep in your app state
+    /// without cloning them, [borrow](Table#borrowing-rows) them instead.
     ///
     /// The `widths` parameter accepts any type that implements `IntoIterator<Item =
     /// Into<Constraint>>`. This includes arrays, slices, vectors, iterators. `Into<Constraint>` is
@@ -646,7 +699,8 @@ impl<'a> Table<'a> {
     /// Set the rows
     ///
     /// The `rows` parameter accepts any value that can be converted into an iterator of [`Row`]s.
-    /// This includes arrays, slices, and [`Vec`]s.
+    /// This includes arrays, slices, and [`Vec`]s. To draw rows that you keep in your app state
+    /// without cloning them, [borrow](Table#borrowing-rows) them instead.
     ///
     /// # Warning
     ///
@@ -1333,7 +1387,7 @@ impl StatefulWidget for &Table<'_> {
             state.select(None);
         }
 
-        let column_count = self.column_count();
+        let column_count = self.column_count(state.selected_column());
         if state.selected_column.is_some_and(|s| s >= column_count) {
             state.select_column(Some(column_count.saturating_sub(1)));
         }
@@ -1757,7 +1811,11 @@ impl Table<'_> {
         // left, then push each column right past the slots that precede it. Two passes rather
         // than interleaving the slots into the constraints, so `flex` and `column_spacing` keep
         // acting on the columns alone.
-        let slots = symbol_columns.iter().filter(|slot| **slot).count() as u16;
+        let slots = symbol_columns
+            .iter()
+            .take(widths.len())
+            .filter(|slot| **slot)
+            .count() as u16;
         let content_width = max_width.saturating_sub(selection_width * slots);
         let rects = Layout::horizontal(widths)
             .flex(self.flex)
@@ -1784,27 +1842,44 @@ impl Table<'_> {
             .map_or(self.rows.len(), |provider| provider.count)
     }
 
-    fn column_count(&self) -> usize {
+    /// The number of columns in the widest row, capped at the columns that rendering reads: one
+    /// per width, and the selected column.
+    ///
+    /// Reading stops at the first row that reaches the cap, so a table whose header or first row
+    /// fills every width reads one row per frame, however many rows it has. Without widths, the
+    /// equal default widths need the exact count, so every row is read.
+    fn column_count(&self, selected_column: Option<usize>) -> usize {
+        let cap = if self.widths.is_empty() {
+            usize::MAX
+        } else {
+            self.widths
+                .len()
+                .max(selected_column.map_or(0, |column| column.saturating_add(1)))
+        };
         // Lazy rows cannot be inspected without building them, so the column count comes from the
         // widths (which `Table::lazy_rows` requires) and from the header and footer.
-        let lazy_columns = if self.lazy.is_some() {
+        let mut count = if self.lazy.is_some() {
             self.widths.len()
         } else {
             0
         };
-        self.rows
+        for row in self
+            .header
             .iter()
             .chain(self.footer.iter())
-            .chain(self.header.iter())
-            .map(|row| {
-                row.cells
-                    .iter()
-                    .map(|cell| usize::from(cell.column_span))
-                    .sum()
-            })
-            .chain(Some(lazy_columns))
-            .max()
-            .unwrap_or_default()
+            .chain(self.rows.iter())
+        {
+            if count >= cap {
+                break;
+            }
+            let columns = row
+                .cells
+                .iter()
+                .map(|cell| usize::from(cell.column_span))
+                .sum();
+            count = count.max(columns);
+        }
+        count.min(cap)
     }
 
     /// Returns the width of the selection column if anything is selected, or the
@@ -1859,6 +1934,30 @@ where
     }
 }
 
+/// Borrows the rows instead of copying them. Set the column widths with [`Table::widths`].
+impl<'a> From<&'a [Row<'a>]> for Table<'a> {
+    fn from(rows: &'a [Row<'a>]) -> Self {
+        Self {
+            rows: CowSlice::Borrowed(rows),
+            ..Default::default()
+        }
+    }
+}
+
+/// Borrows the rows instead of copying them. Set the column widths with [`Table::widths`].
+impl<'a, const N: usize> From<&'a [Row<'a>; N]> for Table<'a> {
+    fn from(rows: &'a [Row<'a>; N]) -> Self {
+        Self::from(rows.as_slice())
+    }
+}
+
+/// Borrows the rows instead of copying them. Set the column widths with [`Table::widths`].
+impl<'a> From<&'a Vec<Row<'a>>> for Table<'a> {
+    fn from(rows: &'a Vec<Row<'a>>) -> Self {
+        Self::from(rows.as_slice())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::string::ToString;
@@ -1899,7 +1998,7 @@ mod tests {
         let rows = [Row::new(vec![Cell::from("")])];
         let widths = [Constraint::Percentage(100)];
         let table = Table::new(rows.clone(), widths);
-        assert_eq!(table.rows, rows);
+        assert_eq!(*table.rows, rows);
         assert_eq!(table.header, None);
         assert_eq!(table.footer, None);
         assert_eq!(table.widths, widths);
@@ -1915,7 +2014,7 @@ mod tests {
     #[test]
     fn default() {
         let table = Table::default();
-        assert_eq!(table.rows, []);
+        assert_eq!(*table.rows, []);
         assert_eq!(table.header, None);
         assert_eq!(table.footer, None);
         assert_eq!(table.widths, []);
@@ -1942,7 +2041,7 @@ mod tests {
             Row::new(["3*0 = 0", "3*1 = 3", "3*2 = 6", "3*3 = 9"]),
         ];
 
-        assert_eq!(table.rows, expected_rows);
+        assert_eq!(*table.rows, expected_rows);
         assert_eq!(table.widths, [Constraint::Percentage(25); 4]);
     }
 
@@ -1974,7 +2073,22 @@ mod tests {
     fn rows() {
         let rows = [Row::new(vec![Cell::from("")])];
         let table = Table::default().rows(rows.clone());
-        assert_eq!(table.rows, rows);
+        assert_eq!(*table.rows, rows);
+    }
+
+    #[test]
+    fn from_borrowed_rows_keeps_the_callers_rows() {
+        let array = [Row::new(["a"]), Row::new(["b"])];
+        let rows = array.to_vec();
+        for (table, expected) in [
+            (Table::from(rows.as_slice()), rows.as_ptr()),
+            (Table::from(&array), array.as_ptr()),
+            (Table::from(&rows), rows.as_ptr()),
+        ] {
+            assert_eq!(table.rows.as_ptr(), expected);
+            assert_eq!(table.lazy, None);
+            assert_eq!(table.widths, []);
+        }
     }
 
     #[test]
@@ -2798,6 +2912,25 @@ mod tests {
             assert_eq!(buf, Buffer::with_lines(["A1 A2       ", "B1 B2       "]));
         }
 
+        #[rstest]
+        #[case::no_column_selected(None)]
+        #[case::column_past_the_widths_selected(Some(2))]
+        fn cells_past_the_widths_get_no_slot(#[case] selected_column: Option<usize>) {
+            // The third cell has no width, so the table does not draw it, and its symbol slot
+            // must not take space from the columns it does draw.
+            let rows = [Row::new(["A1", "A2", "A3"])];
+            let table = Table::new(rows, [Constraint::Length(2), Constraint::Fill(1)])
+                .highlight_symbol(">>")
+                .highlight_placement(HighlightPlacement::AllColumns);
+            let mut state = TableState::new()
+                .with_selected(0)
+                .with_selected_column(selected_column);
+            let area = Rect::new(0, 0, 10, 1);
+            let mut buf = Buffer::empty(area);
+            StatefulWidget::render(table, area, &mut buf, &mut state);
+            assert_eq!(buf, Buffer::with_lines([">>A1 >>A2 "]));
+        }
+
         #[test]
         fn symbol_follows_columns_not_spanned_cells() {
             // The first cell spans two columns, so cell index 1 is column index 2. With a slot on
@@ -3530,7 +3663,7 @@ mod tests {
         let table = Table::new(rows, Vec::<Constraint>::new())
             .header(header)
             .footer(footer);
-        let column_count = table.column_count();
+        let column_count = table.column_count(None);
         assert_eq!(column_count, expected);
     }
 
@@ -3545,7 +3678,7 @@ mod tests {
     )]
     fn column_count_counts_spanned_columns(#[case] row: Row, #[case] expected: usize) {
         let table = Table::new([row], Vec::<Constraint>::new());
-        assert_eq!(table.column_count(), expected);
+        assert_eq!(table.column_count(None), expected);
     }
 
     #[test]
@@ -3553,7 +3686,30 @@ mod tests {
         let table = Table::new([Row::new(["a"])], Vec::<Constraint>::new())
             .header(Row::new([Cell::new("H").column_span(3)]))
             .footer(Row::new([Cell::new("F").column_span(2)]));
-        assert_eq!(table.column_count(), 3);
+        assert_eq!(table.column_count(None), 3);
+    }
+
+    #[test]
+    fn column_count_stops_at_the_widths_and_the_selected_column() {
+        let rows = [Row::new(["a", "b"]), Row::new(["a", "b", "c", "d"])];
+        let table = Table::new(rows, [Length(1); 2]);
+        assert_eq!(table.column_count(None), 2);
+        assert_eq!(table.column_count(Some(2)), 3);
+    }
+
+    #[rstest]
+    #[case::kept_inside_a_wider_later_row(3, 3)]
+    #[case::clamped_to_the_widest_row(9, 3)]
+    fn selected_column_past_the_widths_is_clamped_by_the_widest_row(
+        #[case] selected: usize,
+        #[case] expected: usize,
+    ) {
+        let rows = [Row::new(["a", "b"]), Row::new(["a", "b", "c", "d"])];
+        let table = Table::new(rows, [Length(1); 2]);
+        let mut state = TableState::new().with_selected_column(selected);
+        let area = Rect::new(0, 0, 4, 2);
+        StatefulWidget::render(table, area, &mut Buffer::empty(area), &mut state);
+        assert_eq!(state.selected_column(), Some(expected));
     }
 
     #[test]

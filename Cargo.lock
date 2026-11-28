@@ -101,6 +101,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "borrowed_rows"
+version = "0.0.0"
+dependencies = [
+ "ratatui",
+ "ratatui-table",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

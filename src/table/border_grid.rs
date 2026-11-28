@@ -21,7 +21,12 @@ pub struct BorderGrid {
 impl BorderGrid {
     pub fn new(borders: TableBorders, frame: Rect) -> Self {
         let mut verticals = Vec::new();
-        let mut horizontals = Vec::new();
+        // Each horizontal sits on a different row of the frame, so the frame height bounds them.
+        let mut horizontals = if borders.contains(TableBorders::INNER_HORIZONTAL) {
+            Vec::with_capacity(usize::from(frame.height))
+        } else {
+            Vec::new()
+        };
         if borders.contains(TableBorders::LEFT) {
             verticals.push(frame.left());
         }
@@ -54,6 +59,8 @@ impl BorderGrid {
         if !self.borders.contains(TableBorders::INNER_VERTICAL) {
             return;
         }
+        self.verticals
+            .reserve(column_widths.len().saturating_sub(1));
         self.columns = column_widths
             .iter()
             .map(|column| Rect {

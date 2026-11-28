@@ -4,6 +4,7 @@ use core::ops::Range;
 use ratatui_core::style::{Style, Styled};
 
 use super::Cell;
+use super::cow_slice::CowSlice;
 
 /// A single row of data to be displayed in a [`Table`] widget.
 ///
@@ -58,6 +59,17 @@ use super::Cell;
 /// (0..10).map(|i| format!("{i}")).collect::<Row>();
 /// ```
 ///
+/// A row can borrow cells that you keep elsewhere instead of taking ownership of them. A row built
+/// from another row borrows that row's cells and copies its height, margins and style.
+///
+/// ```rust
+/// use ratatui_table::{Cell, Row};
+///
+/// let cells = vec![Cell::from("Cell1"), Cell::from("Cell2")];
+/// let row = Row::from(&cells);
+/// let header = Row::from(&row);
+/// ```
+///
 /// `Row` implements [`Styled`] which means you can use style shorthands from the [`Stylize`] trait
 /// to set the style of the row concisely.
 ///
@@ -74,7 +86,7 @@ use super::Cell;
 /// [`Stylize`]: ratatui_core::style::Stylize
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct Row<'a> {
-    pub(crate) cells: Vec<Cell<'a>>,
+    pub(crate) cells: CowSlice<'a, Cell<'a>>,
     pub(crate) height: u16,
     pub(crate) top_margin: u16,
     pub(crate) bottom_margin: u16,
@@ -281,6 +293,43 @@ where
     }
 }
 
+/// Borrows the cells instead of copying them. The row has a height of 1, like [`Row::new`].
+impl<'a> From<&'a [Cell<'a>]> for Row<'a> {
+    fn from(cells: &'a [Cell<'a>]) -> Self {
+        Self {
+            cells: CowSlice::Borrowed(cells),
+            height: 1,
+            ..Default::default()
+        }
+    }
+}
+
+/// Borrows the cells instead of copying them. The row has a height of 1, like [`Row::new`].
+impl<'a, const N: usize> From<&'a [Cell<'a>; N]> for Row<'a> {
+    fn from(cells: &'a [Cell<'a>; N]) -> Self {
+        Self::from(cells.as_slice())
+    }
+}
+
+/// Borrows the cells instead of copying them. The row has a height of 1, like [`Row::new`].
+impl<'a> From<&'a Vec<Cell<'a>>> for Row<'a> {
+    fn from(cells: &'a Vec<Cell<'a>>) -> Self {
+        Self::from(cells.as_slice())
+    }
+}
+
+/// Borrows the other row's cells and copies its height, margins and style.
+///
+/// A header or footer that you keep in your app state goes into a table this way without a clone.
+impl<'a> From<&'a Self> for Row<'a> {
+    fn from(row: &'a Self) -> Self {
+        Self {
+            cells: CowSlice::Borrowed(&row.cells),
+            ..*row
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::vec;
@@ -293,21 +342,43 @@ mod tests {
     fn new() {
         let cells = vec![Cell::from("")];
         let row = Row::new(cells.clone());
-        assert_eq!(row.cells, cells);
+        assert_eq!(*row.cells, cells);
     }
 
     #[test]
     fn collect() {
         let cells = vec![Cell::from("")];
         let row: Row = cells.iter().cloned().collect();
-        assert_eq!(row.cells, cells);
+        assert_eq!(*row.cells, cells);
     }
 
     #[test]
     fn cells() {
         let cells = vec![Cell::from("")];
         let row = Row::default().cells(cells.clone());
-        assert_eq!(row.cells, cells);
+        assert_eq!(*row.cells, cells);
+    }
+
+    #[test]
+    fn from_cells_borrows_the_callers_cells() {
+        let cells = vec![Cell::from("a"), Cell::from("b")];
+        let array = [Cell::from("a"), Cell::from("b")];
+        assert_eq!(Row::from(cells.as_slice()).cells.as_ptr(), cells.as_ptr());
+        assert_eq!(Row::from(&array).cells.as_ptr(), array.as_ptr());
+        assert_eq!(Row::from(&cells).cells.as_ptr(), cells.as_ptr());
+        assert_eq!(Row::from(&cells), Row::new(cells.clone()));
+    }
+
+    #[test]
+    fn from_row_borrows_its_cells_and_copies_its_layout() {
+        let row = Row::new(["a", "b"])
+            .height(2)
+            .top_margin(1)
+            .bottom_margin(3)
+            .red();
+        let borrowed = Row::from(&row);
+        assert_eq!(borrowed, row);
+        assert_eq!(borrowed.cells.as_ptr(), row.cells.as_ptr());
     }
 
     #[test]
